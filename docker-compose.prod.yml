@@ -1,0 +1,79 @@
+services:
+  api:
+    image: ${API_IMAGE:?Set API_IMAGE in .env}
+    container_name: ${API_CONTAINER:-todo-api}
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: ${DB_HOST:-todo-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: ${DB_CONTAINER:-todo-postgres}
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      app-network:
+        aliases:
+          - ${DB_HOST:-todo-postgres}
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:4.8.1-standalone
+    container_name: ${ADMINER_CONTAINER:-todo-adminer}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: ${DB_HOST:-todo-postgres}
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  stats-api:
+    image: ${STATS_API_IMAGE:?Set STATS_API_IMAGE in .env}
+    container_name: ${STATS_API_CONTAINER:-todo-stats-api}
+    environment:
+      DB_HOST: ${DB_HOST:-todo-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "${STATS_API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+networks:
+  app-network:
+
+volumes:
+  pgdata:
+    name: ${DB_VOLUME:-todo-pgdata}
