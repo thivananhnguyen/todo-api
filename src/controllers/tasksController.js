@@ -1,41 +1,43 @@
 const taskModel = require('../models/task');
 const createHttpError = require('../utils/httpError');
+const asyncHandler = require('../utils/asyncHandler');
 
-function createTask(req, res) {
-	const task = taskModel.createTask(req.validatedTask);
+const createTask = asyncHandler(async (req, res) => {
+	const task = await taskModel.createTask(req.validatedTask);
 	return res.status(201).json(task);
-}
+});
 
-function getAllTasks(req, res) {
-	return res.json(taskModel.getAllTasks());
-}
+const getAllTasks = asyncHandler(async (req, res) => {
+	const tasks = await taskModel.getAllTasks();
+	return res.json(tasks);
+});
 
-function getTaskById(req, res, next) {
-	const task = taskModel.getTaskById(req.params.id);
+const getTaskById = asyncHandler(async (req, res, next) => {
+	const task = await taskModel.getTaskById(req.params.id);
 	if (!task) {
 		return next(createHttpError(404, 'task not found'));
 	}
 
 	return res.json(task);
-}
+});
 
-function updateTask(req, res, next) {
-	const updatedTask = taskModel.updateTask(req.params.id, req.taskPatch);
+const updateTask = asyncHandler(async (req, res, next) => {
+	const updatedTask = await taskModel.updateTask(req.params.id, req.taskPatch);
 	if (!updatedTask) {
 		return next(createHttpError(404, 'task not found'));
 	}
 
 	return res.json(updatedTask);
-}
+});
 
-function deleteTask(req, res, next) {
-	const deleted = taskModel.deleteTask(req.params.id);
+const deleteTask = asyncHandler(async (req, res, next) => {
+	const deleted = await taskModel.deleteTask(req.params.id);
 	if (!deleted) {
 		return next(createHttpError(404, 'task not found'));
 	}
 
 	return res.status(204).send();
-}
+});
 
 module.exports = {
 	createTask,
