@@ -1,0 +1,34 @@
+# Node dependencies and caches
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# VCS and editor
+.git
+.gitignore
+.vscode
+.idea
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Build/test artifacts
+coverage
+dist
+build
+.nyc_output
+
+# Logs and temp files
+logs
+*.log
+*.tmp
+*.temp
+
+# Documentation and local files not needed at runtime
+docs
+.DS_Store
+Thumbs.db
