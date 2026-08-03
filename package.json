@@ -1,0 +1,43 @@
+{
+  "name": "todo-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "jest --runInBand",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thivananhnguyen/todo-api.git"
+  },
+  "keywords": [
+    "todo",
+    "api",
+    "rest",
+    "nodejs",
+    "express",
+    "docker"
+  ],
+  "author": "Van-anh",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/thivananhnguyen/todo-api/issues"
+  },
+  "homepage": "https://github.com/thivananhnguyen/todo-api#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "uuid": "^14.0.1"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
+  }
+}
