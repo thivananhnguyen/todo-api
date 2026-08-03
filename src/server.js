@@ -1,15 +1,18 @@
-const app = require('./app');
-const taskModel = require('./models/task');
+require('dotenv').config();
 
-const PORT = process.env.PORT || 3000;
+const { getEnv } = require('./config/env');
 
 async function startServer() {
 	try {
+		const env = getEnv();
+		const app = require('./app');
+		const taskModel = require('./models/task');
+
 		// Ensure DB schema exists before serving requests.
 		await taskModel.initializeTaskTable();
 
-		app.listen(PORT, () => {
-			console.log(`Todo API listening on port ${PORT}`);
+		app.listen(env.port, () => {
+			console.log(`Todo API listening on port ${env.port}`);
 		});
 	} catch (error) {
 		console.error('Failed to initialize database:', error.message);
