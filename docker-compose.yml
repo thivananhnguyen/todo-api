@@ -58,6 +58,26 @@ services:
       - app-network
     restart: unless-stopped
 
+  stats-api:
+    build:
+      context: ./stats_api
+      dockerfile: Dockerfile
+    container_name: ${STATS_API_CONTAINER:-todo-stats-api}
+    environment:
+      DB_HOST: ${DB_HOST:-todo-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "${STATS_API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
 networks:
   app-network:
 
