@@ -9,7 +9,7 @@ const app = express();
 app.use(helmet());
 app.use(cors());
 // Parse JSON request bodies for API routes.
-app.use(express.json());
+app.use(express.json({ limit: '16kb' }));
 
 app.get('/health', (req, res) => {
 	res.json({ status: 'ok', timestamp: new Date().toISOString() });
