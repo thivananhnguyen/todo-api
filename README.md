@@ -1,6 +1,7 @@
 # Todo API - README complet (Partie 1)
 
-[![CI](https://github.com/thivananhnguyen/todo-api/actions/workflows/ci.yml/badge.svg)](https://github.com/thivananhnguyen/todo-api/actions/workflows/ci.yml)
+[![Verify](https://github.com/thivananhnguyen/todo-api/actions/workflows/verify.yml/badge.svg)](https://github.com/thivananhnguyen/todo-api/actions/workflows/verify.yml)
+[![Release](https://github.com/thivananhnguyen/todo-api/actions/workflows/release.yml/badge.svg)](https://github.com/thivananhnguyen/todo-api/actions/workflows/release.yml)
 [![Docker Hub API](https://img.shields.io/badge/docker%20hub-nguyenthivananh%2Ftodo--api-blue)](https://hub.docker.com/r/nguyenthivananh/todo-api)
 [![Docker Hub Stats](https://img.shields.io/badge/docker%20hub-nguyenthivananh%2Ftodo--stats--api-blue)](https://hub.docker.com/r/nguyenthivananh/todo-stats-api)
 
