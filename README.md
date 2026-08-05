@@ -462,6 +462,40 @@ Date reference: 2026-08-03
    - Verifier que /metrics contient # HELP et # TYPE pour counter/histogram.
    - Verifier qu aucun label ne contient un id dynamique de tache.
 
+### Partie 3 - Phase 8 (Prometheus et Grafana sur la machine cible)
+
+1. Objectif:
+   - Ajouter la supervision dans la meme stack de production sur la machine cible.
+   - Versionner la configuration Prometheus et le dashboard Grafana dans le depot.
+2. Fichiers:
+   - deploy/compose.yml
+   - deploy/prometheus.yml
+   - deploy/grafana/provisioning/datasources/prometheus.yml
+   - deploy/grafana/provisioning/dashboards/dashboard.yml
+   - deploy/grafana/dashboards/todo-api-golden-signals.json
+   - .github/workflows/ci.yml
+3. Services ajoutes dans la stack cible:
+   - prometheus (prom/prometheus), port 9090 publie.
+   - grafana (grafana/grafana), port 3001 publie.
+   - Prometheus scrape todo-api via son nom de service interne: todo-api:3000.
+4. Golden signals dans le dashboard:
+   - Availability: up{job="todo-api"}
+   - Traffic: sum(rate(http_requests_total[1m]))
+   - Errors: ratio 5xx / total
+   - Latency: p95 via histogram_quantile sur http_request_duration_seconds_bucket
+5. Pipeline et deploiement:
+   - Les fichiers prometheus/grafana sont copies depuis le depot vers /srv/todo a chaque deploy.
+   - Aucune modification manuelle directe sur la machine de production.
+   - Verification post-deploy etendue: API /health, Prometheus /-/healthy, Grafana /api/health.
+   - Le fichier /srv/todo/.env doit contenir aussi GRAFANA_ADMIN_USER et GRAFANA_ADMIN_PASSWORD.
+6. Verification manuelle recommandee:
+   - Ouvrir Grafana: http://localhost:3001 (identifiants definis dans /srv/todo/.env).
+   - Verifier datasource Prometheus preprovisionnee sur http://prometheus:9090 (pas localhost:9090 dans Grafana).
+   - Lancer une boucle de charge pendant 2 minutes, puis observer les 4 panneaux.
+7. Incidents a distinguer:
+   - docker stop todo-api: up tombe rapidement a 0.
+   - Base coupee mais API vivante: up peut rester a 1, mais le taux d erreur monte.
+
 ## 13) Commandes utiles
 
 1. npm run dev

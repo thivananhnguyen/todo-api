@@ -141,12 +141,20 @@ jobs:
       - name: Ensure deployment folder on target
         run: |
           ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "mkdir -p /srv/todo"
+            "mkdir -p /srv/todo /srv/todo/grafana/provisioning/datasources /srv/todo/grafana/provisioning/dashboards /srv/todo/grafana/dashboards"
 
-      - name: Upload deployment compose file
+      - name: Upload deployment files
         run: |
           scp -P "${{ secrets.DEPLOY_PORT }}" deploy/compose.yml \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/compose.yml"
+          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/prometheus.yml \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/prometheus.yml"
+          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/provisioning/datasources/prometheus.yml \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/provisioning/datasources/prometheus.yml"
+          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/provisioning/dashboards/dashboard.yml \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/provisioning/dashboards/dashboard.yml"
+          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/dashboards/todo-api-golden-signals.json \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/dashboards/todo-api-golden-signals.json"
 
       - name: Validate target .env file
         run: |
@@ -156,6 +164,8 @@ jobs:
             grep -q "^DB_USER=" /srv/todo/.env || { echo "Missing DB_USER in /srv/todo/.env"; exit 1; }
             grep -q "^DB_PASSWORD=" /srv/todo/.env || { echo "Missing DB_PASSWORD in /srv/todo/.env"; exit 1; }
             grep -q "^DB_NAME=" /srv/todo/.env || { echo "Missing DB_NAME in /srv/todo/.env"; exit 1; }
+            grep -q "^GRAFANA_ADMIN_USER=" /srv/todo/.env || { echo "Missing GRAFANA_ADMIN_USER in /srv/todo/.env"; exit 1; }
+            grep -q "^GRAFANA_ADMIN_PASSWORD=" /srv/todo/.env || { echo "Missing GRAFANA_ADMIN_PASSWORD in /srv/todo/.env"; exit 1; }
           '
 
       - name: Deploy images on vm-prod
@@ -170,20 +180,39 @@ jobs:
         run: |
           ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
             set -e
-            if command -v curl >/dev/null 2>&1; then
-              curl --retry 20 --retry-all-errors --retry-delay 1 -f http://localhost:3000/health
-            elif command -v wget >/dev/null 2>&1; then
-              i=1
-              until wget -q --spider -T 2 http://localhost:3000/health; do
-                if [ "$i" -ge 20 ]; then
-                  echo "Health check failed after 20 attempts"
-                  exit 1
-                fi
-                i=$((i + 1))
-                sleep 1
-              done
-            else
+            check_url() {
+              url="$1"
+              if command -v curl >/dev/null 2>&1; then
+                curl --retry 20 --retry-all-errors --retry-delay 1 -f "$url" >/dev/null
+                return
+              fi
+
+              if command -v wget >/dev/null 2>&1; then
+                i=1
+                until wget -q --spider -T 2 "$url"; do
+                  if [ "$i" -ge 20 ]; then
+                    echo "Health check failed after 20 attempts for $url"
+                    exit 1
+                  fi
+                  i=$((i + 1))
+                  sleep 1
+                done
+                return
+              fi
+
               echo "Neither curl nor wget is installed on target host"
               exit 127
+            }
+
+            check_url http://localhost:3000/health
+            check_url http://localhost:9090/-/healthy
+            check_url http://localhost:3001/api/health
+
+            if command -v curl >/dev/null 2>&1; then
+              curl -fsS http://localhost:9090/api/v1/targets | grep -q '"job":"todo-api"'
+              curl -fsS http://localhost:9090/api/v1/targets | grep -q '"health":"up"'
+            elif command -v wget >/dev/null 2>&1; then
+              wget -q -O- http://localhost:9090/api/v1/targets | grep -q '"job":"todo-api"'
+              wget -q -O- http://localhost:9090/api/v1/targets | grep -q '"health":"up"'
             fi
           '
