@@ -397,6 +397,36 @@ Date reference: 2026-08-03
    - Scenario C: teste avec TAG inexistant (does-not-exist-1785936766).
    - Resultat C: echec explicite manifest unknown, code retour non nul, production existante reste active.
 
+### Partie 3 - Phase 6 (Tests qui touchent la base dans la pipeline)
+
+1. Objectif:
+   - Ajouter des tests d integration qui parlent vraiment a PostgreSQL.
+   - Faire echouer la pipeline avant deploy en cas de regression metier.
+2. Fichiers:
+   - tests/integration/tasks.integration.test.js
+   - .github/workflows/ci.yml
+   - package.json
+3. Couverture fonctionnelle (4 comportements):
+   - Creation d une tache puis relecture par id avec contenu attendu.
+   - Lecture d un id inexistant avec 404 propre.
+   - Requete invalide (champ manquant, description trop longue) avec 400.
+   - Suppression d une tache puis verification qu elle disparait de la liste.
+4. Fiabilite des tests:
+   - Schema cree avant tests via initializeTaskTable (beforeAll).
+   - Nettoyage DB avant chaque test via TRUNCATE TABLE tasks (beforeEach).
+   - Job verify execute sur ubuntu-latest avec service postgres:16-alpine + healthcheck pg_isready.
+5. Configuration CI retenue:
+   - DB_HOST=localhost, DB_PORT=5432, DB_USER=todo_user, DB_NAME=todo_test en clair.
+   - DB_PASSWORD via secret GitHub (secrets.DB_PASSWORD).
+6. Verification reelle effectuee (2026-08-05):
+   - npm test: 11/11 tests unitaires passes.
+   - npm run test:integration: 4/4 tests passes contre un Postgres reel.
+   - Deux executions consecutives de test:integration: 4/4 puis 4/4 (pas de pollution de donnees).
+7. Checklist de verification a rejouer:
+   - Push sur branche: verify doit lancer unit + integration et rester vert.
+   - Casser volontairement une route (ex: mauvais code HTTP attendu): verify doit devenir rouge.
+   - Corriger la route: verify repasse vert.
+
 ## 13) Commandes utiles
 
 1. npm run dev
