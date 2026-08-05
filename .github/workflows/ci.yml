@@ -53,6 +53,14 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}
 
+      - name: Build and push Todo Stats API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./stats_api
+          file: ./stats_api/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/todo-stats-api:${{ github.sha }}
+
   self-hosted-smoke:
     name: self-hosted-smoke
     runs-on: self-hosted
