@@ -1,0 +1,37 @@
+services:
+  todo-api:
+    container_name: todo-api
+    image: ${DOCKERHUB_USERNAME}/todo-api:${TAG}
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: todo-db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "3000:3000"
+    depends_on:
+      todo-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  todo-db:
+    container_name: todo-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - todo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  todo-db-data:
