@@ -1,0 +1,109 @@
+name: verify
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: todo_test
+          POSTGRES_USER: todo_user
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U todo_user -d todo_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: todo_user
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_NAME: todo_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+  security-deps:
+    name: security-deps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies (high+critical)
+        run: npm audit --audit-level=high
+
+  security-secrets:
+    name: security-secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for leaked secrets
+        uses: gitleaks/gitleaks-action@v2
+
+  verify-summary:
+    name: verify-summary
+    runs-on: ubuntu-latest
+    needs:
+      - tests
+      - security-deps
+      - security-secrets
+    if: always()
+    steps:
+      - name: Publish verify summary
+        run: |
+          {
+            echo "## Verify Security Summary"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| tests | ${{ needs.tests.result }} |"
+            echo "| security-deps | ${{ needs.security-deps.result }} |"
+            echo "| security-secrets | ${{ needs.security-secrets.result }} |"
+            echo ""
+            echo "Verdict: all required checks above must be **success** before merge."
+          } >> "$GITHUB_STEP_SUMMARY"
