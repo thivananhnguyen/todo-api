@@ -5,6 +5,7 @@ process.env.DB_PASSWORD = process.env.DB_PASSWORD || 'todo_pass';
 process.env.DB_NAME = process.env.DB_NAME || 'todo_test';
 
 const request = require('supertest');
+const { resetMetrics } = require('../../src/observability/metrics');
 
 jest.mock('../../src/models/task', () => ({
   createTask: jest.fn(),
@@ -20,6 +21,7 @@ const app = require('../../src/app');
 describe('Todo API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMetrics();
   });
 
   test('GET /health returns service status', async () => {
@@ -158,5 +160,68 @@ describe('Todo API', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('JSON payload is too large');
+  });
+
+  test('GET /metrics returns plain text prometheus metrics', async () => {
+    const response = await request(app).get('/metrics');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.text).toContain('# HELP http_requests_total');
+    expect(response.text).toContain('# TYPE http_requests_total counter');
+  });
+
+  test('increments http_requests_total by three for repeated route calls', async () => {
+    taskModel.getAllTasks.mockResolvedValue([]);
+
+    await request(app).get('/api/tasks');
+    await request(app).get('/api/tasks');
+    await request(app).get('/api/tasks');
+
+    const metricsResponse = await request(app).get('/metrics');
+    expect(metricsResponse.status).toBe(200);
+
+    const line = metricsResponse.text
+      .split('\n')
+      .find((entry) => entry.startsWith('http_requests_total{method="GET",route="/api/tasks",status="200"}'));
+
+    expect(line).toBeDefined();
+    expect(Number(line.split(' ').pop())).toBe(3);
+  });
+
+  test('counts unmatched routes that return 404', async () => {
+    await request(app).get('/this-route-does-not-exist');
+
+    const metricsResponse = await request(app).get('/metrics');
+    const line = metricsResponse.text
+      .split('\n')
+      .find((entry) => entry.startsWith('http_requests_total{method="GET",route="unmatched",status="404"}'));
+
+    expect(line).toBeDefined();
+    expect(Number(line.split(' ').pop())).toBe(1);
+  });
+
+  test('increments tasks_created_total when creating a task', async () => {
+    taskModel.createTask.mockResolvedValue({
+      id: 'task-1',
+      description: 'Learn metrics',
+      status: 'todo',
+      createdAt: '2026-08-05T10:00:00.000Z',
+      updatedAt: '2026-08-05T10:00:00.000Z',
+    });
+
+    const createResponse = await request(app)
+      .post('/api/tasks')
+      .send({ description: 'Learn metrics', status: 'todo' });
+
+    expect(createResponse.status).toBe(201);
+
+    const metricsResponse = await request(app).get('/metrics');
+    const line = metricsResponse.text
+      .split('\n')
+      .find((entry) => entry.startsWith('tasks_created_total '));
+
+    expect(line).toBeDefined();
+    expect(Number(line.split(' ').pop())).toBe(1);
   });
 });

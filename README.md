@@ -427,6 +427,41 @@ Date reference: 2026-08-03
    - Casser volontairement une route (ex: mauvais code HTTP attendu): verify doit devenir rouge.
    - Corriger la route: verify repasse vert.
 
+### Partie 3 - Phase 7 (Rendre l API mesurable)
+
+1. Objectif:
+   - Exposer des metriques Prometheus pour observer trafic, erreurs et latence.
+   - Ajouter une metrique metier utile (taches creees) pour le suivi fonctionnel.
+2. Fichiers:
+   - src/observability/metrics.js
+   - src/app.js
+   - src/controllers/tasksController.js
+   - tests/unit/app.api.test.js
+3. Metriques implementees:
+   - Route /metrics en texte brut (Content-Type Prometheus).
+   - Counter http_requests_total{method,route,status}.
+   - Histogram http_request_duration_seconds{method,route,status}.
+   - Counter metier tasks_created_total.
+4. Choix techniques importants:
+   - Les routes inconnues 404 sont comptees avec le label route="unmatched".
+   - Les labels de route utilisent le pattern Express (/api/tasks/:id) et jamais les ids reels.
+   - Le compteur metier est incremente uniquement apres une creation de tache reussie.
+5. Verification reelle effectuee (2026-08-05):
+   - npm test: 15/15 tests unitaires passes (incluant les tests metrics).
+   - npm run test:integration: 4/4 tests passes contre PostgreSQL reel.
+   - Test compteur: trois appels GET /api/tasks incrementent exactement le compteur de +3.
+6. Incidents reels rencontres et correction:
+   - Conflit de port 3000: vm-prod occupait deja 0.0.0.0:3000, donc le service api local ne pouvait pas demarrer via compose.
+   - Symptome observe: /health repondait mais /metrics retournait "Cannot GET /metrics" car les requetes partaient vers une autre instance (vm-prod).
+   - Correction appliquee: demarrer la stack locale avec un port hote different (API_PORT=3100) pour isoler les tests metrics.
+   - Commande retenue: API_PORT=3100 docker compose up -d --build api db stats-api
+   - Verification retenue: utiliser ensuite http://localhost:3100/health et http://localhost:3100/metrics.
+7. Checklist de verification manuelle:
+   - Appeler 3 fois la meme route (ex: GET /api/tasks), puis lire /metrics et verifier +3.
+   - Appeler une route inconnue et verifier un point http_requests_total avec status="404".
+   - Verifier que /metrics contient # HELP et # TYPE pour counter/histogram.
+   - Verifier qu aucun label ne contient un id dynamique de tache.
+
 ## 13) Commandes utiles
 
 1. npm run dev

@@ -1,9 +1,11 @@
 const taskModel = require('../models/task');
 const createHttpError = require('../utils/httpError');
 const asyncHandler = require('../utils/asyncHandler');
+const { incrementTasksCreated } = require('../observability/metrics');
 
 const createTask = asyncHandler(async (req, res) => {
 	const task = await taskModel.createTask(req.validatedTask);
+	incrementTasksCreated();
 	return res.status(201).json(task);
 });
 
