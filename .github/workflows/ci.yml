@@ -153,7 +153,15 @@ jobs:
             if command -v curl >/dev/null 2>&1; then
               curl --retry 20 --retry-all-errors --retry-delay 1 -f http://localhost:3000/health
             elif command -v wget >/dev/null 2>&1; then
-              wget -q --tries=20 --waitretry=1 --spider http://localhost:3000/health
+              i=1
+              until wget -q --spider -T 2 http://localhost:3000/health; do
+                if [ "$i" -ge 20 ]; then
+                  echo "Health check failed after 20 attempts"
+                  exit 1
+                fi
+                i=$((i + 1))
+                sleep 1
+              done
             else
               echo "Neither curl nor wget is installed on target host"
               exit 127
