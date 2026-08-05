@@ -1,4 +1,4 @@
-name: phase1-ci
+name: ci
 
 on:
   push:
@@ -8,6 +8,28 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: todo_test
+          POSTGRES_USER: todo_user
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U todo_user -d todo_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: todo_user
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_NAME: todo_test
 
     steps:
       - name: Checkout
@@ -22,13 +44,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests (or skip if none exist)
-        run: |
-          if find tests -type f \( -name "*.test.js" -o -name "*.spec.js" \) | grep -q .; then
-            npm test
-          else
-            echo "No test files found under tests/, skipping test step for now."
-          fi
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run integration tests
+        run: npm run test:integration
 
   build:
     name: build
