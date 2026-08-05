@@ -1,0 +1,16 @@
+FROM docker:28-dind
+
+# Install SSH server and generate host keys.
+RUN apk add --no-cache openssh-server && ssh-keygen -A
+
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# Only the deployment public key is authorized to connect.
+COPY deploy_key.pub /root/.ssh/authorized_keys
+RUN chmod 600 /root/.ssh/authorized_keys
+
+# Start sshd before the Docker daemon entrypoint.
+RUN printf '#!/bin/sh\n/usr/sbin/sshd\nexec dockerd-entrypoint.sh "$@"\n' > /start.sh \
+  && chmod +x /start.sh
+
+ENTRYPOINT ["/start.sh"]
