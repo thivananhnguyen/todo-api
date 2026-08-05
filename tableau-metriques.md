@@ -1,4 +1,4 @@
-# Tableau de metriques - Chapitre 10
+# Tableau de metriques
 
 Ce document centralise les mesures de performance et d optimisation relevees pour la Partie 1.
 
