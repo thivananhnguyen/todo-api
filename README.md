@@ -495,6 +495,13 @@ Date reference: 2026-08-03
 7. Incidents a distinguer:
    - docker stop todo-api: up tombe rapidement a 0.
    - Base coupee mais API vivante: up peut rester a 1, mais le taux d erreur monte.
+8. Releve reel (3 moments) pour le journal:
+
+| Moment | Timestamp (UTC) | up | Requetes/s | Taux d erreur 5xx | p95 (s) |
+|---|---|---:|---:|---:|---:|
+| Au repos, avant la boucle de charge | 2026-08-05T15:30:19Z | 1 | 6.201403375687464 | 0 | 0.02399875 |
+| Pendant la boucle de charge | 2026-08-05T15:30:40Z | 1 | 5.300640043270531 | 0 | 0.0240859375 |
+| Pendant l incident (todo-api stop 45s) | 2026-08-05T15:32:48Z | 0 | 0.025033333333333335 | 0 | N/A |
 
 ## 13) Commandes utiles
 
