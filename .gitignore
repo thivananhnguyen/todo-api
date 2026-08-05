@@ -43,4 +43,9 @@ Thumbs.db
 # Docker-related local overrides
 .docker/
 
-docs/
+docs/*
+!docs/PROCEDURE_DEPLOIEMENT.md
+!docs/Grafana-loop.png
+!docs/Grafana.png
+!docs/Prometheus.png
+scripts/*

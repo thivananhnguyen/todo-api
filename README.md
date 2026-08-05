@@ -503,6 +503,49 @@ Date reference: 2026-08-03
 | Pendant la boucle de charge | 2026-08-05T15:30:40Z | 1 | 5.300640043270531 | 0 | 0.0240859375 |
 | Pendant l incident (todo-api stop 45s) | 2026-08-05T15:32:48Z | 0 | 0.025033333333333335 | 0 | N/A |
 
+### Partie 3 - Phase 9 (Procedure deploiement et passation d astreinte)
+
+1. Objectif:
+   - Rendre le deploiement operable par une autre personne, sans connaissance implicite du projet.
+   - Tester une vraie passation incident avec mesure MTTR.
+2. Livrables attendus:
+   - Un runbook de deploiement/rollback utilisable en copier-coller.
+   - Deux exercices de passation (A depanne B, puis B depanne A).
+   - Un journal avec timestamps, symptomes, diagnostic, action et MTTR.
+3. Procedure individuelle recommandee (avant comparaison groupe):
+   - Etape 1: deploy nominal depuis main et verifier /health, Prometheus, Grafana.
+   - Etape 2: executer un incident volontaire (un seul a la fois), observer dashboard, corriger.
+   - Etape 3: mesurer MTTR et noter ce qui manque dans la procedure.
+   - Etape 4: corriger la procedure, puis rejouer le meme incident pour valider.
+4. Incidents minimaux a couvrir en individuel:
+   - Incident A: stop todo-api (availability doit tomber rapidement).
+   - Incident B: stop todo-db (API peut rester up, erreurs metier doivent monter).
+   - Incident C: image/tag invalide au redeploy (echec explicite, pas de demi-deploy silencieux).
+5. Commandes de reference:
+   - Deploy: cd /srv/todo && TAG=<sha> DOCKERHUB_USERNAME=<user> docker compose -f compose.yml up -d
+   - Rollback: cd /srv/todo && TAG=<sha_precedent> DOCKERHUB_USERNAME=<user> docker compose -f compose.yml up -d
+   - Health API: curl -sS http://localhost:3000/health
+   - Health Prometheus: curl -sS http://localhost:9090/-/healthy
+   - Health Grafana: curl -sS http://localhost:3001/api/health
+6. Template Journal individuel (a remplir):
+
+| Incident | Debut (UTC) | Detection (signal) | Action corrective | Retour OK (UTC) | MTTR (s) | Correctif runbook |
+|---|---|---|---|---|---:|---|
+| Stop todo-api | A_COMPLETER | up=0 | A_COMPLETER | A_COMPLETER | A_COMPLETER | A_COMPLETER |
+| Stop todo-db | A_COMPLETER | 5xx en hausse | A_COMPLETER | A_COMPLETER | A_COMPLETER | A_COMPLETER |
+
+7. Comparaison groupe (apres travail individuel):
+   - Comparer MTTR entre membres pour le meme incident.
+   - Identifier les etapes ambigues (commande, prerequis, verification).
+   - Converger vers une seule version runbook avec wording plus clair.
+   - Garder les preuves minimales: commande executee, capture symptome, capture retour normal.
+8. Critere de validation Phase 9:
+   - Une personne externe suit la procedure et restaure le service sans aide orale.
+   - Les commandes de rollback sont testees pour de vrai.
+   - Le journal contient au moins 2 passations avec MTTR explicite.
+9. Document operationnel associe:
+   - Voir docs/PROCEDURE_DEPLOIEMENT.md pour la procedure complete (deploy, verification, rollback, drill incident, template MTTR).
+
 ## 13) Commandes utiles
 
 1. npm run dev
