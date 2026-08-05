@@ -212,11 +212,25 @@ jobs:
             check_url http://localhost:9090/-/healthy 60
             check_url http://localhost:3001/api/health 90
 
-            if command -v curl >/dev/null 2>&1; then
-              curl -fsS http://localhost:9090/api/v1/targets | grep -q '"job":"todo-api"'
-              curl -fsS http://localhost:9090/api/v1/targets | grep -q '"health":"up"'
-            elif command -v wget >/dev/null 2>&1; then
-              wget -q -O- http://localhost:9090/api/v1/targets | grep -q '"job":"todo-api"'
-              wget -q -O- http://localhost:9090/api/v1/targets | grep -q '"health":"up"'
-            fi
+            # Verify Prometheus actually reports todo-api as up (with retries).
+            i=1
+            until [ "$i" -gt 30 ]; do
+              if command -v curl >/dev/null 2>&1; then
+                payload="$(curl -fsSG --max-time 5 'http://localhost:9090/api/v1/query' --data-urlencode 'query=up{job="todo-api"}')" || true
+              elif command -v wget >/dev/null 2>&1; then
+                payload="$(wget -q -T 5 -O- 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22todo-api%22%7D')" || true
+              else
+                echo "Neither curl nor wget is installed on target host"
+                exit 127
+              fi
+
+              echo "$payload" | grep -q '"status":"success"' && \
+              echo "$payload" | grep -q '"result"' && \
+              echo "$payload" | grep -Eq '"value":\[[^]]*,"1"\]' && break
+
+              i=$((i + 1))
+              sleep 1
+            done
+
+            [ "$i" -le 30 ] || { echo "Prometheus did not report up{job=\"todo-api\"}=1 in time"; exit 1; }
           '
