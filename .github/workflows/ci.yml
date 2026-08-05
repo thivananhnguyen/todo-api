@@ -52,3 +52,16 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}
+
+  self-hosted-smoke:
+    name: self-hosted-smoke
+    runs-on: self-hosted
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Show runner hostname
+        run: hostname
+
+      - name: Show Docker visibility on runner
+        run: docker ps -a
