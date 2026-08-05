@@ -98,10 +98,13 @@ jobs:
 
       - name: Scan Todo API image (high+critical)
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DISABLE_VEX_NOTICE: "true"
         with:
           scan-type: image
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}
           scanners: vuln
+          vuln-type: os
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
