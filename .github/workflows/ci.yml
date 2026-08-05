@@ -64,4 +64,4 @@ jobs:
         run: hostname
 
       - name: Show Docker visibility on runner
-        run: docker ps -a
+        run: docker ps -a --filter "name=vm-prod" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
