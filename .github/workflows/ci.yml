@@ -55,7 +55,7 @@ jobs:
 
   self-hosted-smoke:
     name: self-hosted-smoke
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -64,4 +64,4 @@ jobs:
         run: hostname
 
       - name: Show Docker visibility on runner
-        run: docker ps -a --filter "name=vm-prod" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        run: docker ps -a
