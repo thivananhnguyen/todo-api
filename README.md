@@ -1,5 +1,9 @@
 # Todo API - README complet (Partie 1)
 
+[![CI](https://github.com/thivananhnguyen/todo-api/actions/workflows/ci.yml/badge.svg)](https://github.com/thivananhnguyen/todo-api/actions/workflows/ci.yml)
+[![Docker Hub API](https://img.shields.io/badge/docker%20hub-nguyenthivananh%2Ftodo--api-blue)](https://hub.docker.com/r/nguyenthivananh/todo-api)
+[![Docker Hub Stats](https://img.shields.io/badge/docker%20hub-nguyenthivananh%2Ftodo--stats--api-blue)](https://hub.docker.com/r/nguyenthivananh/todo-stats-api)
+
 Projet fil rouge de la formation DevOps/Docker: API Todo en Node.js, persistence PostgreSQL, orchestration Docker Compose, service Python de statistiques, publication des images sur Docker Hub, et mesures d optimisation.
 
 ## 1) Objectif pedagogique
@@ -241,12 +245,164 @@ Date reference: 2026-08-03
 1. Objectif: preuves quantitatives
 2. Resultat: tableau de mesures complet ajoute
 
+### Partie 3 - Phase 1 (Pipeline sur Todo API)
+
+1. Objectif:
+   - Demenager la CI sur le vrai repo Todo API.
+   - Lancer verification sur branches et publication image seulement sur main.
+2. Fichiers:
+   - .github/workflows/ci.yml
+3. Commandes et actions:
+   - Ajout workflow avec job verify.
+   - Ajout job build-and-push avec condition main.
+   - Push de validation sur main et sur branche de travail.
+4. Resultats observes:
+   - Sur branche: verify execute, build-and-push non publie.
+   - Sur main: image publiee avec tag commit sha.
+5. Incident rencontre:
+   - Ambiguite initiale sur test sans fichiers de test versionnes.
+6. Correction appliquee:
+   - Ajout d une vraie suite de tests dans tests/unit.
+   - Renommage du job test en verify pour branch protection.
+7. Preuves:
+   - Workflow vert sur Actions.
+   - Tags Docker Hub distincts sur push successifs.
+
+### Partie 3 - Phase 2 (Machine cible maquette)
+
+1. Objectif:
+   - Provisionner une machine cible isolee avec Docker + SSH.
+2. Fichiers:
+   - Dockerfile.vm
+   - .gitignore (exclusion deploy_key et deploy_key.pub)
+3. Commandes et actions:
+   - ssh-keygen -t ed25519 -N "" -f deploy_key
+   - docker build -f Dockerfile.vm -t vm-prod .
+   - docker run -d --privileged --name vm-prod -p 2222:22 -p 3000:3000 -p 9090:9090 -p 3001:3001 -v vm-prod-data:/var/lib/docker vm-prod
+   - ssh -i deploy_key -p 2222 root@localhost
+4. Resultats observes:
+   - Connexion SSH avec cle reussie.
+   - Connexion sans -i deploy_key refusee.
+   - docker run --rm hello-world fonctionne dans la machine cible.
+   - Apres docker restart vm-prod, les images restent presentes (volume persistant).
+5. Incident rencontre:
+   - Echec temporaire pull docker:28-dind (EOF reseau) lors d une tentative.
+6. Correction appliquee:
+   - Re-pull de l image puis reconstruction vm-prod.
+7. Preuves:
+   - vm-prod expose correctement 2222, 3000, 9090, 3001.
+   - Isolation validee: docker ps dans vm-prod n affiche pas les conteneurs de dev host.
+
+### Partie 3 - Phase 3 (Preparation self-hosted runner)
+
+1. Objectif:
+   - Preparer l execution future du job deploy depuis un runner local.
+2. Actions realisees:
+   - Verification des prerequis runner et des secrets deploy a configurer.
+   - Alignement de la CI avec un check verify exploitable pour protected main.
+3. Etat:
+   - Runner local pret a etre enregistre sur GitHub Settings > Actions > Runners.
+4. Secrets a fournir:
+   - DEPLOY_SSH_KEY
+   - DEPLOY_HOST
+   - DEPLOY_PORT
+   - DEPLOY_USER
+5. Note process:
+   - Le deploiement self-hosted n est pas active tant que le runner n est pas online.
+6. Preuves demandees (test 2 puis retour config pass):
+   - 377aace: ci(test2): run smoke job on ubuntu-latest for hosted runner proof
+   - 9193ddd: ci(phase3): restore self-hosted smoke with vm-prod localhost check
+
+### Partie 3 - Phase 4 (Job de deploiement automatise)
+
+1. Objectif:
+   - Deployer automatiquement sur la machine cible uniquement depuis main.
+   - Garder la cle privee en memoire (jamais ecrite sur disque du runner).
+2. Fichiers:
+   - .github/workflows/ci.yml
+   - deploy/compose.yml
+3. Commandes et actions:
+   - Ajout d un job build (sans push) pour verifier les branches de travail.
+   - Build-and-push de todo-api et todo-stats-api avec tag commit SHA sur main.
+   - Job deploy-vm-prod en self-hosted: ssh-agent, scp du compose vers /srv/todo, puis deploy avec TAG=${github.sha}.
+   - Verification cible avant deploy: presence de /srv/todo/.env et des variables DB_USER, DB_PASSWORD, DB_NAME.
+   - Verification post-deploiement via /health depuis la machine cible (fallback curl puis wget BusyBox).
+4. Securite appliquee:
+   - Utilisation de webfactory/ssh-agent avec DEPLOY_SSH_KEY (cle non ecrite en fichier temporaire).
+   - Aucun echo de la cle privee dans les logs.
+5. Resultats valides (3 scenarios):
+   - Push main: chaine complete verify -> build -> build-and-push -> smoke -> deploy.
+   - Push branche: verify + build uniquement, pas de deploy.
+   - Secret volontairement faux: echec clair a la connexion SSH, sans fuite de cle.
+6. Incidents rencontres et corrections:
+   - Erreur interpolation DB_NAME absente: ajout du controle explicite de /srv/todo/.env avant le deploy.
+   - Cible sans curl: ajout fallback wget.
+   - BusyBox wget sans option --waitretry: remplacement par une boucle retry portable.
+7. Preuves (commits):
+   - a53d5e2: ci(phase4): build and push api plus stats-api images
+   - 1f4b05a: ci(phase4): add self-hosted deploy job to vm-prod
+   - ccba03f: ci(phase4): secure ssh-agent deploy to /srv/todo with TAG
+   - 743d2b2: ci(phase4): health check fallback to wget when curl is missing
+   - 1ea55d5: ci(phase4): make health check compatible with BusyBox wget
+8. Etat de sortie pour Phase 5:
+   - Pipeline de deploiement automatise stabilisee sur main.
+   - Preconditions cibles formalisees (/srv/todo/.env controle).
+   - Verification de sante robuste sur environnements cibles heterogenes.
+
+### Partie 3 - Phase 5 (Rejouer et revenir en arriere)
+
+1. Objectif:
+   - Verifier qu un deploiement est idempotent (rejouable sans casser la prod).
+   - Mesurer un rollback reel vers un commit precedent tague sur Docker Hub.
+2. Principe cle:
+   - Le deploiement utilise docker compose up -d, donc seul l etat different est applique.
+   - Le rollback ne reconstruit rien: il suffit de changer TAG vers un sha precedent.
+3. Commande de rollback de reference (a conserver):
+   - cd /srv/todo && TAG=<sha_precedent> DOCKERHUB_USERNAME=<votre_user> docker compose -f compose.yml up -d
+4. Scenario A - Rejouer le meme deploiement:
+   - Push main une premiere fois et noter le sha deploye.
+   - Push a nouveau sans changement fonctionnel (ou relancer le job) et verifier:
+     - pas d erreur de port deja utilise,
+     - pas de conteneur orphelin,
+     - service toujours disponible (/health = 200).
+5. Scenario B - Regression volontaire puis rollback:
+   - Introduire une regression visible (ex: route /health retourne 500), commit/push main.
+   - Constater la regression en production et noter l heure T0.
+   - Rollback immediat vers le sha precedent valide avec la commande de reference.
+   - Verifier le retablissement (/health = 200) et noter l heure T1.
+   - Mesure attendue: delai rollback = T1 - T0.
+6. Scenario C - Rollback vers un tag inexistant:
+   - Lancer TAG=<sha_inexistant> ... docker compose up -d.
+   - Attendu: echec lisible (manifest unknown / pull access denied), sans extinction partielle silencieuse.
+7. Preuves a conserver (Actions + Journal):
+   - Run main #1 (deploiement nominal).
+   - Run main #2 (rejeu idempotent).
+   - Capture regression constatee, puis capture service retabli apres rollback.
+   - Log d echec clair sur tag inexistant.
+8. Journal de bord (a remplir au fil de l eau):
+   - SHA deploye nominal:
+   - SHA rollback cible:
+   - Heure constat regression (T0):
+   - Heure service retabli (T1):
+   - Delai rollback (T1 - T0):
+   - Resultat scenario tag inexistant:
+9. Execution reelle effectuee (2026-08-05):
+   - Scenario A: teste en direct sur vm-prod avec TAG=1ea55d58c9b6ac4c6d3baa265c68771f687a9e42, 2 executions consecutives de docker compose up -d.
+   - Resultat A: pas d erreur de port, conteneurs todo-api et todo-db restent Running/healthy, /health repond status=ok.
+   - Scenario B: regression volontaire deployee via commit d6549c9, puis rollback vers 1ea55d58c9b6ac4c6d3baa265c68771f687a9e42.
+   - Constat regression: GET /api/tasks retourne HTTP 500 (T0=2026-08-05T13:41:41Z).
+   - Retablissement: apres rollback, /health=200 et GET /api/tasks retourne [] (T1=2026-08-05T13:42:24Z).
+   - Delai rollback mesure: 43 secondes (T1 - T0).
+   - Nettoyage repo apres drill: revert du commit regression avec aa9d782.
+   - Scenario C: teste avec TAG inexistant (does-not-exist-1785936766).
+   - Resultat C: echec explicite manifest unknown, code retour non nul, production existante reste active.
+
 ## 13) Commandes utiles
 
 1. npm run dev
 2. npm start
-3. npm test (actuellement aucun fichier de test versionne)
-4. npx jest --passWithNoTests (verification CI locale sans echec)
+3. npm test
+4. npm test -- --runInBand
 5. docker compose up -d --build
 6. docker compose -f docker-compose.prod.yml up -d
 
