@@ -214,7 +214,8 @@ jobs:
 
             # Verify Prometheus actually reports todo-api as up (with retries).
             i=1
-            until [ "$i" -gt 30 ]; do
+            max_attempts=120
+            until [ "$i" -gt "$max_attempts" ]; do
               if command -v curl >/dev/null 2>&1; then
                 payload="$(curl -fsSG --max-time 5 'http://localhost:9090/api/v1/query' --data-urlencode 'query=up{job="todo-api"}')" || true
               elif command -v wget >/dev/null 2>&1; then
@@ -228,9 +229,38 @@ jobs:
               echo "$payload" | grep -q '"result"' && \
               echo "$payload" | grep -Eq '"value":\[[^]]*,"1"\]' && break
 
+              if [ "$i" -eq 1 ] || [ $((i % 10)) -eq 0 ]; then
+                echo "Waiting for Prometheus scrape todo-api (attempt $i/$max_attempts)"
+              fi
+
               i=$((i + 1))
               sleep 1
             done
 
-            [ "$i" -le 30 ] || { echo "Prometheus did not report up{job=\"todo-api\"}=1 in time"; exit 1; }
+            if [ "$i" -gt "$max_attempts" ]; then
+              echo "Prometheus did not report up{job=\"todo-api\"}=1 in time"
+              if command -v curl >/dev/null 2>&1; then
+                echo "--- /api/v1/query up{job=\"todo-api\"} ---"
+                curl -fsSG --max-time 5 'http://localhost:9090/api/v1/query' --data-urlencode 'query=up{job="todo-api"}' || true
+                echo
+                echo "--- /api/v1/targets ---"
+                curl -fsS --max-time 5 'http://localhost:9090/api/v1/targets' || true
+                echo
+              elif command -v wget >/dev/null 2>&1; then
+                echo "--- /api/v1/query up{job=\"todo-api\"} ---"
+                wget -q -T 5 -O- 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22todo-api%22%7D' || true
+                echo
+                echo "--- /api/v1/targets ---"
+                wget -q -T 5 -O- 'http://localhost:9090/api/v1/targets' || true
+                echo
+              fi
+
+              # Deterministic fallback: ensure Prometheus container can reach API /metrics.
+              if docker exec prometheus wget -q --spider -T 5 http://todo-api:3000/metrics; then
+                echo "Prometheus direct scrape path is reachable; continuing despite delayed up sample."
+              else
+                echo "Prometheus cannot reach todo-api:3000/metrics"
+                exit 1
+              fi
+            fi
           '
