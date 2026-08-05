@@ -182,16 +182,17 @@ jobs:
             set -e
             check_url() {
               url="$1"
+              attempts="${2:-20}"
               if command -v curl >/dev/null 2>&1; then
-                curl --retry 20 --retry-all-errors --retry-delay 1 -f "$url" >/dev/null
+                curl --retry "$attempts" --retry-all-errors --retry-delay 1 --max-time 5 -f "$url" >/dev/null
                 return
               fi
 
               if command -v wget >/dev/null 2>&1; then
                 i=1
-                until wget -q --spider -T 2 "$url"; do
-                  if [ "$i" -ge 20 ]; then
-                    echo "Health check failed after 20 attempts for $url"
+                until wget -q --spider -T 5 "$url"; do
+                  if [ "$i" -ge "$attempts" ]; then
+                    echo "Health check failed after $attempts attempts for $url"
                     exit 1
                   fi
                   i=$((i + 1))
@@ -204,9 +205,12 @@ jobs:
               exit 127
             }
 
-            check_url http://localhost:3000/health
-            check_url http://localhost:9090/-/healthy
-            check_url http://localhost:3001/api/health
+            # Give containers a brief warm-up before probing endpoints.
+            sleep 5
+
+            check_url http://localhost:3000/health 60
+            check_url http://localhost:9090/-/healthy 60
+            check_url http://localhost:3001/api/health 90
 
             if command -v curl >/dev/null 2>&1; then
               curl -fsS http://localhost:9090/api/v1/targets | grep -q '"job":"todo-api"'
