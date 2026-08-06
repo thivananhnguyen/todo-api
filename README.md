@@ -743,6 +743,36 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - Avec `maxUnavailable: 0`, le Service garde des pods prets pendant le remplacement.
    - Les deux executions consecutives confirment un resultat stable (0 requete echouee).
 
+### Partie 4 - Jour 4 - Phase 9 (Rollback chronometre)
+
+1. Objectif:
+   - Mesurer un retour arriere reel avec `kubectl rollout undo`.
+   - Comparer le delai d aujourd hui avec celui d hier (drill SSH manuel).
+2. Drill execute (cluster):
+   - Preparation du scenario de panne visible: passage temporaire en `replicas: 1`, `maxSurge: 0`, `maxUnavailable: 1`.
+   - Injection regression: image invalide (`this-tag-does-not-exist-phase9`) via `kubectl set image`.
+   - Detection de regression (T0): premier `curl /health` en echec (`HTTP 503`, `no available server`).
+   - Remediation: `kubectl rollout undo deployment/todo-api -n todo` + `kubectl rollout status`.
+   - Retour service (T1): premier `curl /health` revenu `HTTP 200`.
+3. Mesure reelle:
+   - T0: `2026-08-06T13:25:58Z`
+   - T1: `2026-08-06T13:26:10Z`
+   - MTTR mesure: `12 secondes`
+4. Comparaison avec hier (Phase 5, SSH manuel):
+   - Hier: `43 secondes`
+   - Aujourd hui (cluster + rollback Kubernetes): `12 secondes`
+   - Ecart: `-31 secondes` (retablissement plus rapide aujourd hui).
+5. Verification `history` et `--to-revision=N`:
+   - `kubectl rollout history deployment/todo-api -n todo` liste plusieurs revisions (`... 17, 18, 19, 20`).
+   - `kubectl rollout undo --to-revision=<N>` fonctionne sur une revision explicite (teste avec une revision historique existante).
+   - Observation utile: une revision ancienne peut reintroduire une config non desirable (test `--to-revision=4` -> `HTTP 503`), donc il faut cibler une revision connue saine.
+6. Verification du cas sans historique:
+   - Deployment de test `phase9-nohistory` cree puis `kubectl rollout undo` execute immediatement.
+   - Resultat observe: `error: no rollout history found for deployment "phase9-nohistory"`.
+7. Restauration finale:
+   - Re-application du manifeste source `k8s/todo-api-deployment.yaml`.
+   - Etat final confirme: `replicas=3`, `maxSurge=1`, `maxUnavailable=0`, `/health=200`, `/api/tasks=200`.
+
 ## 13) Commandes utiles
 
 1. npm run dev
