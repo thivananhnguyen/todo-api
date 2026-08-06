@@ -54,3 +54,4 @@ docs/*
 !docs/Grafana.png
 !docs/Prometheus.png
 scripts/*
+!scripts/charge.sh

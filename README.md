@@ -649,6 +649,38 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - Commit de test branche: `f30d159537ff4768a421009660219bf7591836bd` (`test(ci): scenario B branch push no cluster deploy`).
    - Verification cluster apres push branche: `deployment.kubernetes.io/revision: 7` et `Image: nguyenthivananh/todo-api:b5e4a02d42572dfccdc6df58c16dfe3c66ba6928` (inchanges).
    - Conclusion: push sur branche lance la verification CI, sans deploiement cluster.
+7. Preuve Scenario C (execute):
+   - Commit de test main (tag invalide volontaire): `a8076f582390d77cbb242490d16f2ddd8e2c6cdd`.
+   - Workflow release cible: run `31099791784`.
+   - Effet observe sur cluster: `Image: nguyenthivananh/todo-api:a8076f582390d77cbb242490d16f2ddd8e2c6cdd-does-not-exist`, nouveau pod en `ErrImagePull`, revision deployment incrementee a `8`.
+   - Conclusion: le rollout ne converge pas avec un tag inexistant, ce qui valide le garde-fou de la pipeline.
+8. Restauration apres Scenario C:
+   - Commit de restauration: `7196156` (retour du tag `${github.sha}` valide dans release.yml).
+   - Un nouveau workflow release est relance pour revenir a un deploiement nominal.
+
+### Partie 4 - Jour 4 - Phase 6 (Replicas x3 et preuve de repartition)
+
+1. Objectif:
+   - Passer `todo-api` de 1 a 3 replicas.
+   - Prouver que le Service repartit reellement le trafic entre plusieurs pods.
+2. Realisation:
+   - `k8s/todo-api-deployment.yaml`: `replicas` passe a `3`.
+   - Ajout du script `scripts/charge.sh` (charge via ingress avec header `Host: todo.localhost`).
+3. Verification reelle (avant/apres charge):
+   - Avant charge (`http_requests_total{method="GET",route="/api/tasks",status="200"}`):
+     - `todo-api-785c69bb88-pfd6d`: `0`
+     - `todo-api-785c69bb88-pfwd4`: `0`
+     - `todo-api-785c69bb88-xk8zk`: `0`
+   - Charge lancee: `./scripts/charge.sh 30` -> `Total : 237 requetes, 0 echouees`.
+   - Apres charge:
+     - `todo-api-785c69bb88-pfd6d`: `79`
+     - `todo-api-785c69bb88-pfwd4`: `79`
+     - `todo-api-785c69bb88-xk8zk`: `79`
+   - Conclusion: trafic distribue sur les 3 pods (pas de pod unique).
+4. Test inverse (selector service casse):
+   - Selector `todo-api` force volontairement sur une etiquette inexistante.
+   - Charge 8s: `Total : 74 requetes, 73 echouees` (majorite `HTTP 503`).
+   - Restauration du selector `app=todo-api`, puis retour `HTTP 200` sur `/health`.
 
 ## 13) Commandes utiles
 
