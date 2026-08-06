@@ -547,6 +547,51 @@ Date reference: 2026-08-03
 9. Document operationnel associe:
    - Voir docs/PROCEDURE_DEPLOIEMENT.md pour la procedure complete (deploy, verification, rollback, drill incident, template MTTR).
 
+### Partie 3 - Phase 10 (Ce qui n a pas encore ete realise)
+
+Dans le contexte d apprentissage a distance, la passation en binome n a pas encore ete jouee.
+J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, donc la validation a ete faite en solo; des qu il repond, la passation en binome sera realisee et ajoutee aux preuves.
+
+### Partie 4 - Jour 4 - Phase 1 (Serveur unique vers cluster)
+
+1. Objectif:
+   - Creer un cluster local `todo-cluster` pour sortir du modele machine unique.
+   - Deployer la Todo API en namespace dedie `todo` avec image taggee par SHA.
+2. Realisation:
+   - Cluster k3d cree avec exposition `8080:80@loadbalancer`.
+   - Manifestes initialises dans `k8s/`:
+     - `namespace.yaml`
+     - `todo-api-deployment.yaml`
+     - `todo-api-service.yaml`
+3. Verification:
+   - Node control-plane en statut Ready.
+   - Namespace et objets API appliques dans `todo`.
+   - Image SHA tiree correctement depuis Docker Hub.
+4. Limite constatee (attendue a ce stade):
+   - Le pod todo-api redemarre en boucle avec `getaddrinfo EAI_AGAIN todo-db` car la base PostgreSQL n est pas encore deployee dans le cluster (Phase 3).
+
+### Partie 4 - Jour 4 - Phase 2 (ConfigMap + Secret, suppression du hardcode)
+
+1. Objectif:
+   - Retirer les variables DB hardcodees du Deployment.
+   - Externaliser la configuration via ConfigMap/Secret.
+2. Realisation:
+   - `k8s/todo-api-deployment.yaml` passe de `env` statique vers `envFrom`.
+   - Ajout de `k8s/todo-config.yaml` en mode template (`CHANGE_ME`) pour eviter toute valeur d environnement figee dans Git.
+   - Ajout de `k8s/todo-secret.yaml` avec `stringData` et placeholders (`CHANGE_ME`) pour respecter le format du cours.
+   - Secret runtime cree dans le cluster via `kubectl create secret ...` (pas de secret en clair dans les manifests versionnes).
+   - ConfigMap runtime a creer de la meme maniere pour injecter les vraies valeurs sans hardcode dans le depot:
+       - Option recommandee (placeholders/variables shell):
+          - `kubectl create configmap todo-config -n todo --from-literal=NODE_ENV="${NODE_ENV}" --from-literal=PORT="${PORT}" --from-literal=DB_HOST="${DB_HOST}" --from-literal=DB_PORT="${DB_PORT}" --from-literal=DB_NAME="${DB_NAME}" --dry-run=client -o yaml | kubectl apply -f -`
+       - Note securite: cette commande reste acceptable meme en valeurs explicites car elle ne contient aucune donnee sensible (contrairement a `DB_PASSWORD` qui doit rester dans Secret).
+3. Verification:
+   - `kubectl describe deployment todo-api -n todo` montre bien `Environment Variables from: todo-config, todo-secret`.
+   - Cas normal valide via pod de verification (`env-check`): les variables `DB_HOST`, `DB_USER`, `DB_PASSWORD` sont bien presentes dans le conteneur sans etre hardcodees dans le Deployment.
+   - Cas limite valide: modification de `todo-config` non visible dans un pod deja vivant, puis visible apres redemarrage du pod.
+   - Cas cassant valide: suppression volontaire de la cle `DB_PASSWORD` dans le Secret -> le pod helper demarre sans cette variable, et `todo-api` echoue proprement avec `Missing required environment variable: DB_PASSWORD`.
+4. Limite constatee (logique a ce stade):
+   - L API reste en erreur tant que `todo-db` n existe pas dans le cluster, ce qui sera traite en Phase 3 (PostgreSQL + PVC).
+
 ## 13) Commandes utiles
 
 1. npm run dev

@@ -43,6 +43,11 @@ Thumbs.db
 # Docker-related local overrides
 .docker/
 
+# Kubernetes local secrets/context
+k8s/*secret*.local.yaml
+*.kubeconfig
+kubeconfig
+
 docs/*
 !docs/PROCEDURE_DEPLOIEMENT.md
 !docs/Grafana-loop.png
