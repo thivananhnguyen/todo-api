@@ -136,11 +136,13 @@ jobs:
       - name: Show runner hostname
         run: hostname
 
-      - name: Show Docker visibility on runner
-        run: docker ps -a --filter "name=vm-prod" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      - name: Show kubectl context and nodes
+        run: |
+          kubectl config current-context
+          kubectl get nodes
 
-  deploy-vm-prod:
-    name: deploy-vm-prod
+  deploy-cluster:
+    name: deploy-cluster
     runs-on: self-hosted
     needs:
       - build-and-push
@@ -151,139 +153,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Load deploy key into SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Trust deploy host key
+      - name: Validate cluster target
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          set -e
+          kubectl config current-context
+          kubectl get ns todo
+          kubectl get deployment todo-api -n todo
 
-      - name: Ensure deployment folder on target
+      - name: Set new image tag on cluster deployment
         run: |
-          ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "mkdir -p /srv/todo /srv/todo/grafana/provisioning/datasources /srv/todo/grafana/provisioning/dashboards /srv/todo/grafana/dashboards"
+          set -e
+          kubectl set image deployment/todo-api -n todo \
+            todo-api=${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}
 
-      - name: Upload deployment files
+      - name: Wait for rollout convergence
         run: |
-          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/compose.yml \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/compose.yml"
-          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/prometheus.yml \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/prometheus.yml"
-          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/provisioning/datasources/prometheus.yml \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/provisioning/datasources/prometheus.yml"
-          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/provisioning/dashboards/dashboard.yml \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/provisioning/dashboards/dashboard.yml"
-          scp -P "${{ secrets.DEPLOY_PORT }}" deploy/grafana/dashboards/todo-api-golden-signals.json \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/srv/todo/grafana/dashboards/todo-api-golden-signals.json"
+          set -e
+          kubectl rollout status deployment/todo-api -n todo --timeout=180s
 
-      - name: Validate target .env file
+      - name: Verify ingress health after rollout
         run: |
-          ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
-            set -e
-            test -f /srv/todo/.env || { echo "Missing /srv/todo/.env on target"; exit 1; }
-            grep -q "^DB_USER=" /srv/todo/.env || { echo "Missing DB_USER in /srv/todo/.env"; exit 1; }
-            grep -q "^DB_PASSWORD=" /srv/todo/.env || { echo "Missing DB_PASSWORD in /srv/todo/.env"; exit 1; }
-            grep -q "^DB_NAME=" /srv/todo/.env || { echo "Missing DB_NAME in /srv/todo/.env"; exit 1; }
-            grep -q "^GRAFANA_ADMIN_USER=" /srv/todo/.env || { echo "Missing GRAFANA_ADMIN_USER in /srv/todo/.env"; exit 1; }
-            grep -q "^GRAFANA_ADMIN_PASSWORD=" /srv/todo/.env || { echo "Missing GRAFANA_ADMIN_PASSWORD in /srv/todo/.env"; exit 1; }
-          '
-
-      - name: Deploy images on vm-prod
-        run: |
-          ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
-            set -e
-            cd /srv/todo
-            TAG=${{ github.sha }} DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }} docker compose -f compose.yml up -d
-          '
-
-      - name: Verify deployment health
-        run: |
-          ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" '
-            set -e
-            check_url() {
-              url="$1"
-              attempts="${2:-20}"
-              if command -v curl >/dev/null 2>&1; then
-                curl --retry "$attempts" --retry-all-errors --retry-delay 1 --max-time 5 -f "$url" >/dev/null
-                return
-              fi
-
-              if command -v wget >/dev/null 2>&1; then
-                i=1
-                until wget -q --spider -T 5 "$url"; do
-                  if [ "$i" -ge "$attempts" ]; then
-                    echo "Health check failed after $attempts attempts for $url"
-                    exit 1
-                  fi
-                  i=$((i + 1))
-                  sleep 1
-                done
-                return
-              fi
-
-              echo "Neither curl nor wget is installed on target host"
-              exit 127
-            }
-
-            sleep 5
-
-            check_url http://localhost:3000/health 60
-            check_url http://localhost:9090/-/healthy 60
-            check_url http://localhost:3001/api/health 90
-
-            i=1
-            max_attempts=120
-            until [ "$i" -gt "$max_attempts" ]; do
-              if command -v curl >/dev/null 2>&1; then
-                payload="$(curl -fsSG --max-time 5 'http://localhost:9090/api/v1/query' --data-urlencode 'query=up{job="todo-api"}')" || true
-              elif command -v wget >/dev/null 2>&1; then
-                payload="$(wget -q -T 5 -O- 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22todo-api%22%7D')" || true
-              else
-                echo "Neither curl nor wget is installed on target host"
-                exit 127
-              fi
-
-              echo "$payload" | grep -q '"status":"success"' && \
-              echo "$payload" | grep -q '"result"' && \
-              echo "$payload" | grep -Eq '"value":\[[^]]*,"1"\]' && break
-
-              if [ "$i" -eq 1 ] || [ $((i % 10)) -eq 0 ]; then
-                echo "Waiting for Prometheus scrape todo-api (attempt $i/$max_attempts)"
-              fi
-
-              i=$((i + 1))
-              sleep 1
-            done
-
-            if [ "$i" -gt "$max_attempts" ]; then
-              echo "Prometheus did not report up{job=\"todo-api\"}=1 in time"
-              if command -v curl >/dev/null 2>&1; then
-                echo "--- /api/v1/query up{job=\"todo-api\"} ---"
-                curl -fsSG --max-time 5 'http://localhost:9090/api/v1/query' --data-urlencode 'query=up{job="todo-api"}' || true
-                echo
-                echo "--- /api/v1/targets ---"
-                curl -fsS --max-time 5 'http://localhost:9090/api/v1/targets' || true
-                echo
-              elif command -v wget >/dev/null 2>&1; then
-                echo "--- /api/v1/query up{job=\"todo-api\"} ---"
-                wget -q -T 5 -O- 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22todo-api%22%7D' || true
-                echo
-                echo "--- /api/v1/targets ---"
-                wget -q -T 5 -O- 'http://localhost:9090/api/v1/targets' || true
-                echo
-              fi
-
-              if docker exec prometheus wget -q --spider -T 5 http://todo-api:3000/metrics; then
-                echo "Prometheus direct scrape path is reachable; continuing despite delayed up sample."
-              else
-                echo "Prometheus cannot reach todo-api:3000/metrics"
-                exit 1
-              fi
-            fi
-          '
+          set -e
+          curl --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 \
+            -fsS -H "Host: todo.localhost" http://localhost:8080/health >/dev/null
 
   release-summary:
     name: release-summary
@@ -294,7 +186,7 @@ jobs:
       - security-image
       - sbom
       - self-hosted-smoke
-      - deploy-vm-prod
+      - deploy-cluster
     if: always()
     steps:
       - name: Publish release summary
@@ -311,7 +203,7 @@ jobs:
             echo "| security-image | ${{ needs.security-image.result }} |"
             echo "| sbom | ${{ needs.sbom.result }} |"
             echo "| self-hosted-smoke | ${{ needs.self-hosted-smoke.result }} |"
-            echo "| deploy-vm-prod | ${{ needs.deploy-vm-prod.result }} |"
+            echo "| deploy-cluster | ${{ needs.deploy-cluster.result }} |"
             echo ""
             echo "SBOM artifact: todo-api-sbom-${{ github.sha }}"
           } >> "$GITHUB_STEP_SUMMARY"
