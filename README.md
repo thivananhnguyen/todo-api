@@ -592,6 +592,22 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 4. Limite constatee (logique a ce stade):
    - L API reste en erreur tant que `todo-db` n existe pas dans le cluster, ce qui sera traite en Phase 3 (PostgreSQL + PVC).
 
+### Partie 4 - Jour 4 - Phase 3 (PostgreSQL + PVC)
+
+1. Objectif:
+   - Deployer PostgreSQL dans le cluster avec stockage persistant.
+   - Connecter `todo-api` a `todo-db` via le DNS interne Kubernetes.
+2. Realisation:
+   - Ajout de `k8s/todo-db.yaml` (PVC + Deployment + Service).
+   - Ajout de la cle `DB_NAME` dans `k8s/todo-secret.yaml` (template).
+   - Runtime: `todo-secret` complete avec `DB_NAME`, et `todo-config` complete avec `DB_HOST=todo-db`.
+3. Verifications reelles (consigne enseignant):
+   - `todo-db-data` observe en `Bound` apres deploy.
+   - Test persistence valide: creation de tache, suppression du pod `todo-db` (pas le Deployment), retour du pod, puis recuperation de la meme tache au prochain `GET /api/tasks` (`TASK_PERSISTED=YES`).
+   - Observation importante: juste apres recreation du pod DB, l API peut renvoyer transitoirement `500 ECONNREFUSED`; apres quelques retries, elle revient a `200` avec les donnees intactes.
+   - Test service casse valide: selector de `todo-db` modifie volontairement (`app=todo-db-broken`) -> API en `HTTP 500`; restauration du selector (`app=todo-db`) -> API en `HTTP 200`.
+   - Test PVC en usage valide: suppression de `todo-db-data` demandee pendant DB active -> PVC passe en `Terminating` avec finalizer `kubernetes.io/pvc-protection` tant que le volume est attache.
+
 ## 13) Commandes utiles
 
 1. npm run dev
