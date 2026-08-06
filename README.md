@@ -682,6 +682,40 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - Charge 8s: `Total : 74 requetes, 73 echouees` (majorite `HTTP 503`).
    - Restauration du selector `app=todo-api`, puis retour `HTTP 200` sur `/health`.
 
+### Partie 4 - Jour 4 - Phase 7 (Readiness/Liveness et limite de /health)
+
+1. Objectif:
+   - Ajouter `readinessProbe` et `livenessProbe` sur `todo-api`.
+   - Montrer le cas reel ou les sondes sont vertes alors que la route metier echoue.
+2. Realisation:
+   - `k8s/todo-api-deployment.yaml` mis a jour avec:
+     - `readinessProbe` -> `httpGet /health` sur port `3000`, `initialDelaySeconds: 5`.
+     - `livenessProbe` -> `httpGet /health` sur port `3000`, `initialDelaySeconds: 20`.
+3. Verification nominale (base disponible):
+   - Rollout OK: `kubectl rollout status deployment/todo-api -n todo`.
+   - Pods API en `READY 1/1`.
+   - `curl -H "Host: todo.localhost" http://localhost:8080/health` -> `HTTP 200`.
+   - `kubectl describe pod` affiche les deux sondes, sans evenement `Unhealthy` en nominal.
+4. Test limite metier (base coupee, API intacte):
+   - `kubectl scale deployment/todo-db -n todo --replicas=0`.
+   - Observation:
+     - `/health` reste `HTTP 200`.
+     - `/api/tasks` renvoie `HTTP 500` avec `connect ECONNREFUSED ...:5432`.
+     - Pods API restent `READY 1/1`.
+   - Conclusion: les sondes prouvent ici que le serveur HTTP repond, pas que la dependance DB est disponible.
+5. Test erreur de configuration readiness (port 3001 volontairement faux):
+   - Readiness temporairement pointee sur `3001`.
+   - `kubectl describe pod` montre `Readiness probe failed ... connect: connection refused`.
+   - Quand seuls les pods mal configures restent (scale `todo-api` a `0` puis `1` pendant ce test):
+     - pod API en `READY 0/1`.
+     - endpoint `todo-api` uniquement en `notReadyAddresses`.
+     - `curl /health` via ingress -> `HTTP 503` (`no available server`).
+6. Restauration:
+   - Readiness remise sur `3000`.
+   - `todo-db` remis a `1` replica.
+   - `todo-api` remis a `3` replicas.
+   - Verification finale: `/health` `HTTP 200` et `/api/tasks` `HTTP 200`.
+
 ## 13) Commandes utiles
 
 1. npm run dev
