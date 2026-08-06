@@ -716,6 +716,33 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - `todo-api` remis a `3` replicas.
    - Verification finale: `/health` `HTTP 200` et `/api/tasks` `HTTP 200`.
 
+### Partie 4 - Jour 4 - Phase 8 (Rolling update sous charge, mesure)
+
+1. Objectif:
+   - Mesurer l effet reel du rolling update sous charge (pas seulement valider qu il fonctionne).
+   - Remplir le tableau comparatif demande (hier vs aujourd hui).
+2. Realisation:
+   - `k8s/todo-api-deployment.yaml` complete avec une strategie explicite:
+     - `maxUnavailable: 0`
+     - `maxSurge: 1`
+   - Protocole execute:
+     - Lancer `./scripts/charge.sh 30`.
+     - En parallele, changer l image avec `kubectl set image`.
+     - Attendre `kubectl rollout status` et chronometrer la convergence.
+3. Tableau demande par le cours (rempli):
+
+| Deploiement | Requetes echouees | Secondes d indisponibilite | Temps de convergence totale |
+| :---- | :----: | :----: | :----: |
+| Hier, SSH manuel | 1 (drill ponctuel, pas de charge continue) | 43 s (rollback mesure en Phase 5) | N/A (pas de `rollout status` en mode compose/SSH) |
+| Aujourd hui, rolling update | 0 | 0.0 s | 8 s |
+
+4. Preuves de test (jour 4):
+   - Run A (update vers `7b4e2d72...`): `Total 241`, `0 echouees`, convergence `8 s`.
+   - Run B (update retour vers `b5e4a02d...`): `Total 242`, `0 echouees`, resultat similaire sur un deuxieme passage.
+5. Lecture resultat:
+   - Avec `maxUnavailable: 0`, le Service garde des pods prets pendant le remplacement.
+   - Les deux executions consecutives confirment un resultat stable (0 requete echouee).
+
 ## 13) Commandes utiles
 
 1. npm run dev
