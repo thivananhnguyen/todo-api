@@ -164,7 +164,7 @@ jobs:
         run: |
           set -e
           kubectl set image deployment/todo-api -n todo \
-            todo-api=${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}-does-not-exist
+            todo-api=${{ secrets.DOCKERHUB_USERNAME }}/todo-api:${{ github.sha }}
 
       - name: Wait for rollout convergence
         run: |

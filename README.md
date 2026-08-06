@@ -622,6 +622,34 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - Cas port casse: backend force a `3000` (au lieu de `80`) -> `HTTP 404`.
    - Restauration: retour path `/` + port `80` -> `HTTP 200` confirme.
 
+### Partie 4 - Jour 4 - Phase 5 (Pipeline deploy vers cluster)
+
+1. Objectif:
+   - Deployer `todo-api` sur le cluster Kubernetes depuis la pipeline release (push main).
+   - Bloquer la pipeline si le rollout ne converge pas.
+2. Realisation:
+   - `release.yml` migre de `deploy-vm-prod` (SSH + docker compose) vers `deploy-cluster` (kubectl).
+   - Deploiement via `kubectl set image deployment/todo-api -n todo ...:${github.sha}`.
+   - Gate obligatoire via `kubectl rollout status deployment/todo-api -n todo --timeout=180s`.
+   - Verification post-rollout via `curl -H "Host: todo.localhost" http://localhost:8080/health`.
+3. Point important sur verify PR -> main:
+   - Le fichier `verify.yml` couvre deja les PR vers `main` via `on: pull_request`.
+   - Aucune modification obligatoire n est necessaire pour ce point.
+   - Optionnel: on peut restreindre explicitement `pull_request.branches: [main]` si on veut limiter les PR cibles.
+4. Scenarios de validation attendus:
+   - Push main: image SHA visible dans `kubectl describe deployment todo-api -n todo`.
+   - Push branche: verify/build passent, pas de deploy cluster.
+   - Tag image inexistant: rollout bloque, job deploy rouge (comportement attendu).
+5. Preuve Scenario A (execute):
+   - Commit pousse sur `main`: `b5e4a02d42572dfccdc6df58c16dfe3c66ba6928`.
+   - Verification cluster: `kubectl describe deployment todo-api -n todo` affiche `Image: nguyenthivananh/todo-api:b5e4a02d42572dfccdc6df58c16dfe3c66ba6928`.
+   - Conclusion: deploiement effectif via pipeline release sans commande manuelle de deploy.
+6. Preuve Scenario B (execute):
+   - Branche de test poussee: `ci-no-deploy`.
+   - Commit de test branche: `f30d159537ff4768a421009660219bf7591836bd` (`test(ci): scenario B branch push no cluster deploy`).
+   - Verification cluster apres push branche: `deployment.kubernetes.io/revision: 7` et `Image: nguyenthivananh/todo-api:b5e4a02d42572dfccdc6df58c16dfe3c66ba6928` (inchanges).
+   - Conclusion: push sur branche lance la verification CI, sans deploiement cluster.
+
 ## 13) Commandes utiles
 
 1. npm run dev
