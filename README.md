@@ -608,6 +608,20 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
    - Test service casse valide: selector de `todo-db` modifie volontairement (`app=todo-db-broken`) -> API en `HTTP 500`; restauration du selector (`app=todo-db`) -> API en `HTTP 200`.
    - Test PVC en usage valide: suppression de `todo-db-data` demandee pendant DB active -> PVC passe en `Terminating` avec finalizer `kubernetes.io/pvc-protection` tant que le volume est attache.
 
+### Partie 4 - Jour 4 - Phase 4 (Ingress - porte d entree)
+
+1. Objectif:
+   - Exposer `todo-api` depuis l exterieur du cluster via Traefik.
+   - Router `todo.localhost` + chemin `/` vers le Service `todo-api` port `80`.
+2. Realisation:
+   - Ajout de `k8s/todo-ingress.yaml`.
+   - Ingress `todo-ingress` applique dans le namespace `todo` avec `ingressClassName: traefik`.
+3. Verifications reelles:
+   - Cas nominal: `curl -H "Host: todo.localhost" http://localhost:8080/health` -> `HTTP 200` + JSON health.
+   - Cas path casse: path force a `/api`, appel de `/health` -> `HTTP 404`.
+   - Cas port casse: backend force a `3000` (au lieu de `80`) -> `HTTP 404`.
+   - Restauration: retour path `/` + port `80` -> `HTTP 200` confirme.
+
 ## 13) Commandes utiles
 
 1. npm run dev
