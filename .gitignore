@@ -55,3 +55,4 @@ docs/*
 !docs/Prometheus.png
 scripts/*
 !scripts/charge.sh
+!scripts/chaos.sh

@@ -554,92 +554,79 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 
 ### Partie 4 - Jour 4 - Phase 1 (Serveur unique vers cluster)
 
-1. Objectif:
-   - Creer un cluster local `todo-cluster` pour sortir du modele machine unique.
-   - Deployer la Todo API en namespace dedie `todo` avec image taggee par SHA.
-2. Realisation:
-   - Cluster k3d cree avec exposition `8080:80@loadbalancer`.
-   - Manifestes initialises dans `k8s/`:
+Premiere bascule de la journee: sortir du modele VM unique et poser la base Kubernetes.
+
+1. Ce qui a ete fait:
+   - Creation du cluster local `todo-cluster` (k3d) avec entree `8080:80@loadbalancer`.
+   - Initialisation des premiers manifestes dans `k8s/`:
      - `namespace.yaml`
      - `todo-api-deployment.yaml`
      - `todo-api-service.yaml`
-3. Verification:
-   - Node control-plane en statut Ready.
-   - Namespace et objets API appliques dans `todo`.
-   - Image SHA tiree correctement depuis Docker Hub.
-4. Limite constatee (attendue a ce stade):
-   - Le pod todo-api redemarre en boucle avec `getaddrinfo EAI_AGAIN todo-db` car la base PostgreSQL n est pas encore deployee dans le cluster (Phase 3).
+2. Ce qui a ete verifie:
+   - Node control-plane en etat Ready.
+   - Namespace `todo` et objets API bien appliques.
+   - Image SHA correctement tiree depuis Docker Hub.
+3. Ce qu on observe logiquement a ce stade:
+   - `todo-api` boucle avec `getaddrinfo EAI_AGAIN todo-db`, car la base n existe pas encore dans le cluster (traite en Phase 3).
 
 ### Partie 4 - Jour 4 - Phase 2 (ConfigMap + Secret, suppression du hardcode)
 
-1. Objectif:
-   - Retirer les variables DB hardcodees du Deployment.
-   - Externaliser la configuration via ConfigMap/Secret.
-2. Realisation:
-   - `k8s/todo-api-deployment.yaml` passe de `env` statique vers `envFrom`.
-   - Ajout de `k8s/todo-config.yaml` en mode template (`CHANGE_ME`) pour eviter toute valeur d environnement figee dans Git.
-   - Ajout de `k8s/todo-secret.yaml` avec `stringData` et placeholders (`CHANGE_ME`) pour respecter le format du cours.
-   - Secret runtime cree dans le cluster via `kubectl create secret ...` (pas de secret en clair dans les manifests versionnes).
-   - ConfigMap runtime a creer de la meme maniere pour injecter les vraies valeurs sans hardcode dans le depot:
-       - Option recommandee (placeholders/variables shell):
-          - `kubectl create configmap todo-config -n todo --from-literal=NODE_ENV="${NODE_ENV}" --from-literal=PORT="${PORT}" --from-literal=DB_HOST="${DB_HOST}" --from-literal=DB_PORT="${DB_PORT}" --from-literal=DB_NAME="${DB_NAME}" --dry-run=client -o yaml | kubectl apply -f -`
-       - Note securite: cette commande reste acceptable meme en valeurs explicites car elle ne contient aucune donnee sensible (contrairement a `DB_PASSWORD` qui doit rester dans Secret).
-3. Verification:
-   - `kubectl describe deployment todo-api -n todo` montre bien `Environment Variables from: todo-config, todo-secret`.
-   - Cas normal valide via pod de verification (`env-check`): les variables `DB_HOST`, `DB_USER`, `DB_PASSWORD` sont bien presentes dans le conteneur sans etre hardcodees dans le Deployment.
-   - Cas limite valide: modification de `todo-config` non visible dans un pod deja vivant, puis visible apres redemarrage du pod.
-   - Cas cassant valide: suppression volontaire de la cle `DB_PASSWORD` dans le Secret -> le pod helper demarre sans cette variable, et `todo-api` echoue proprement avec `Missing required environment variable: DB_PASSWORD`.
-4. Limite constatee (logique a ce stade):
-   - L API reste en erreur tant que `todo-db` n existe pas dans le cluster, ce qui sera traite en Phase 3 (PostgreSQL + PVC).
+L enjeu ici etait clair: enlever le hardcode et rendre l image reutilisable sans rebuild.
+
+1. Ce qui a ete fait:
+   - `k8s/todo-api-deployment.yaml` bascule de `env` vers `envFrom`.
+   - Ajout de `k8s/todo-config.yaml` (template `CHANGE_ME`).
+   - Ajout de `k8s/todo-secret.yaml` avec `stringData` (template `CHANGE_ME`).
+   - Creation des vraies valeurs au runtime via `kubectl create ... --dry-run=client -o yaml | kubectl apply -f -`.
+2. Ce qui a ete verifie:
+   - Le deployment lit bien `todo-config` et `todo-secret` (`Environment Variables from`).
+   - Cas nominal: variables presentes dans le conteneur, sans hardcode dans Git.
+   - Cas limite: modification ConfigMap visible seulement apres redemarrage du pod.
+   - Cas cassant: suppression de `DB_PASSWORD` -> echec propre `Missing required environment variable: DB_PASSWORD`.
+3. Point de vigilance conserve:
+   - Tant que `todo-db` n existe pas encore, l API ne peut pas etre nominale.
 
 ### Partie 4 - Jour 4 - Phase 3 (PostgreSQL + PVC)
 
-1. Objectif:
-   - Deployer PostgreSQL dans le cluster avec stockage persistant.
-   - Connecter `todo-api` a `todo-db` via le DNS interne Kubernetes.
-2. Realisation:
+Cette phase valide le socle donnees: service DB stable et persistance reelle.
+
+1. Ce qui a ete fait:
    - Ajout de `k8s/todo-db.yaml` (PVC + Deployment + Service).
-   - Ajout de la cle `DB_NAME` dans `k8s/todo-secret.yaml` (template).
-   - Runtime: `todo-secret` complete avec `DB_NAME`, et `todo-config` complete avec `DB_HOST=todo-db`.
-3. Verifications reelles (consigne enseignant):
-   - `todo-db-data` observe en `Bound` apres deploy.
-   - Test persistence valide: creation de tache, suppression du pod `todo-db` (pas le Deployment), retour du pod, puis recuperation de la meme tache au prochain `GET /api/tasks` (`TASK_PERSISTED=YES`).
-   - Observation importante: juste apres recreation du pod DB, l API peut renvoyer transitoirement `500 ECONNREFUSED`; apres quelques retries, elle revient a `200` avec les donnees intactes.
-   - Test service casse valide: selector de `todo-db` modifie volontairement (`app=todo-db-broken`) -> API en `HTTP 500`; restauration du selector (`app=todo-db`) -> API en `HTTP 200`.
-   - Test PVC en usage valide: suppression de `todo-db-data` demandee pendant DB active -> PVC passe en `Terminating` avec finalizer `kubernetes.io/pvc-protection` tant que le volume est attache.
+   - Completion runtime des variables DB (`DB_NAME` dans Secret, `DB_HOST=todo-db` dans ConfigMap).
+2. Ce qui a ete verifie (tests enseignant):
+   - PVC `todo-db-data` en `Bound`.
+   - Persistance confirmee: tache creee avant restart pod DB, puis relue apres recreation (`TASK_PERSISTED=YES`).
+   - Comportement transitoire documente: `500 ECONNREFUSED` possible juste apres retour DB, puis retour a `200` apres retries.
+   - Service casse/repare: selector `todo-db-broken` -> `HTTP 500`, restauration selector -> `HTTP 200`.
+   - Protection PVC: suppression demandee pendant usage -> `Terminating` + finalizer `kubernetes.io/pvc-protection`.
 
 ### Partie 4 - Jour 4 - Phase 4 (Ingress - porte d entree)
 
-1. Objectif:
-   - Exposer `todo-api` depuis l exterieur du cluster via Traefik.
-   - Router `todo.localhost` + chemin `/` vers le Service `todo-api` port `80`.
-2. Realisation:
+On ajoute ensuite la porte d entree externe du cluster.
+
+1. Ce qui a ete fait:
    - Ajout de `k8s/todo-ingress.yaml`.
-   - Ingress `todo-ingress` applique dans le namespace `todo` avec `ingressClassName: traefik`.
-3. Verifications reelles:
-   - Cas nominal: `curl -H "Host: todo.localhost" http://localhost:8080/health` -> `HTTP 200` + JSON health.
-   - Cas path casse: path force a `/api`, appel de `/health` -> `HTTP 404`.
-   - Cas port casse: backend force a `3000` (au lieu de `80`) -> `HTTP 404`.
-   - Restauration: retour path `/` + port `80` -> `HTTP 200` confirme.
+   - Ingress `todo-ingress` avec `ingressClassName: traefik`, host `todo.localhost`, route `/` vers service `todo-api:80`.
+2. Ce qui a ete verifie:
+   - Nominal: `/health` via ingress -> `HTTP 200`.
+   - Route volontairement cassee (`/api`) -> `HTTP 404`.
+   - Port backend volontairement casse (`3000` au lieu de `80`) -> `HTTP 404`.
+   - Restauration complete -> retour `HTTP 200`.
 
 ### Partie 4 - Jour 4 - Phase 5 (Pipeline deploy vers cluster)
 
-1. Objectif:
-   - Deployer `todo-api` sur le cluster Kubernetes depuis la pipeline release (push main).
-   - Bloquer la pipeline si le rollout ne converge pas.
-2. Realisation:
-   - `release.yml` migre de `deploy-vm-prod` (SSH + docker compose) vers `deploy-cluster` (kubectl).
-   - Deploiement via `kubectl set image deployment/todo-api -n todo ...:${github.sha}`.
-   - Gate obligatoire via `kubectl rollout status deployment/todo-api -n todo --timeout=180s`.
-   - Verification post-rollout via `curl -H "Host: todo.localhost" http://localhost:8080/health`.
-3. Point important sur verify PR -> main:
-   - Le fichier `verify.yml` couvre deja les PR vers `main` via `on: pull_request`.
-   - Aucune modification obligatoire n est necessaire pour ce point.
-   - Optionnel: on peut restreindre explicitement `pull_request.branches: [main]` si on veut limiter les PR cibles.
-4. Scenarios de validation attendus:
-   - Push main: image SHA visible dans `kubectl describe deployment todo-api -n todo`.
-   - Push branche: verify/build passent, pas de deploy cluster.
-   - Tag image inexistant: rollout bloque, job deploy rouge (comportement attendu).
+Cette phase est le pivot du jour: le runner pousse toujours, mais la cible devient le cluster.
+
+1. Ce qui a ete fait:
+   - `release.yml` passe de `deploy-vm-prod` (SSH/compose) a `deploy-cluster` (kubectl).
+   - Update image via `${github.sha}` puis gate strict avec `kubectl rollout status --timeout=180s`.
+   - Verification post-deploy via `/health` sur ingress.
+2. Point CI important:
+   - `verify.yml` couvre deja les PR vers `main` via `on: pull_request`.
+3. Scenarios validates:
+   - Push `main` -> deploy effectif sur cluster.
+   - Push branche -> verify/build sans deploy cluster.
+   - Tag invalide -> rollout bloque et pipeline rouge (comportement attendu).
 5. Preuve Scenario A (execute):
    - Commit pousse sur `main`: `b5e4a02d42572dfccdc6df58c16dfe3c66ba6928`.
    - Verification cluster: `kubectl describe deployment todo-api -n todo` affiche `Image: nguyenthivananh/todo-api:b5e4a02d42572dfccdc6df58c16dfe3c66ba6928`.
@@ -660,13 +647,12 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 
 ### Partie 4 - Jour 4 - Phase 6 (Replicas x3 et preuve de repartition)
 
-1. Objectif:
-   - Passer `todo-api` de 1 a 3 replicas.
-   - Prouver que le Service repartit reellement le trafic entre plusieurs pods.
-2. Realisation:
-   - `k8s/todo-api-deployment.yaml`: `replicas` passe a `3`.
-   - Ajout du script `scripts/charge.sh` (charge via ingress avec header `Host: todo.localhost`).
-3. Verification reelle (avant/apres charge):
+On a ensuite valide la logique "stateless = scale horizontal" sur l API.
+
+1. Ce qui a ete fait:
+   - `replicas` passe de 1 a 3 dans `k8s/todo-api-deployment.yaml`.
+   - Ajout de `scripts/charge.sh` pour injecter du trafic via ingress.
+2. Verification reelle (avant/apres charge):
    - Avant charge (`http_requests_total{method="GET",route="/api/tasks",status="200"}`):
      - `todo-api-785c69bb88-pfd6d`: `0`
      - `todo-api-785c69bb88-pfwd4`: `0`
@@ -677,40 +663,37 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
      - `todo-api-785c69bb88-pfwd4`: `79`
      - `todo-api-785c69bb88-xk8zk`: `79`
    - Conclusion: trafic distribue sur les 3 pods (pas de pod unique).
-4. Test inverse (selector service casse):
+3. Test inverse (selector service casse):
    - Selector `todo-api` force volontairement sur une etiquette inexistante.
    - Charge 8s: `Total : 74 requetes, 73 echouees` (majorite `HTTP 503`).
    - Restauration du selector `app=todo-api`, puis retour `HTTP 200` sur `/health`.
 
 ### Partie 4 - Jour 4 - Phase 7 (Readiness/Liveness et limite de /health)
 
-1. Objectif:
-   - Ajouter `readinessProbe` et `livenessProbe` sur `todo-api`.
-   - Montrer le cas reel ou les sondes sont vertes alors que la route metier echoue.
-2. Realisation:
-   - `k8s/todo-api-deployment.yaml` mis a jour avec:
-     - `readinessProbe` -> `httpGet /health` sur port `3000`, `initialDelaySeconds: 5`.
-     - `livenessProbe` -> `httpGet /health` sur port `3000`, `initialDelaySeconds: 20`.
-3. Verification nominale (base disponible):
+Ici, le focus etait la sante applicative et ses limites.
+
+1. Ce qui a ete fait:
+   - Ajout de `readinessProbe` et `livenessProbe` sur `/health` (port `3000`) avec delais distincts.
+2. Verification nominale (base disponible):
    - Rollout OK: `kubectl rollout status deployment/todo-api -n todo`.
    - Pods API en `READY 1/1`.
    - `curl -H "Host: todo.localhost" http://localhost:8080/health` -> `HTTP 200`.
    - `kubectl describe pod` affiche les deux sondes, sans evenement `Unhealthy` en nominal.
-4. Test limite metier (base coupee, API intacte):
+3. Test limite metier (base coupee, API intacte):
    - `kubectl scale deployment/todo-db -n todo --replicas=0`.
    - Observation:
      - `/health` reste `HTTP 200`.
      - `/api/tasks` renvoie `HTTP 500` avec `connect ECONNREFUSED ...:5432`.
      - Pods API restent `READY 1/1`.
    - Conclusion: les sondes prouvent ici que le serveur HTTP repond, pas que la dependance DB est disponible.
-5. Test erreur de configuration readiness (port 3001 volontairement faux):
+4. Test erreur de configuration readiness (port 3001 volontairement faux):
    - Readiness temporairement pointee sur `3001`.
    - `kubectl describe pod` montre `Readiness probe failed ... connect: connection refused`.
    - Quand seuls les pods mal configures restent (scale `todo-api` a `0` puis `1` pendant ce test):
      - pod API en `READY 0/1`.
      - endpoint `todo-api` uniquement en `notReadyAddresses`.
      - `curl /health` via ingress -> `HTTP 503` (`no available server`).
-6. Restauration:
+5. Restauration:
    - Readiness remise sur `3000`.
    - `todo-db` remis a `1` replica.
    - `todo-api` remis a `3` replicas.
@@ -718,17 +701,13 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 
 ### Partie 4 - Jour 4 - Phase 8 (Rolling update sous charge, mesure)
 
-1. Objectif:
-   - Mesurer l effet reel du rolling update sous charge (pas seulement valider qu il fonctionne).
-   - Remplir le tableau comparatif demande (hier vs aujourd hui).
-2. Realisation:
-   - `k8s/todo-api-deployment.yaml` complete avec une strategie explicite:
-     - `maxUnavailable: 0`
-     - `maxSurge: 1`
-   - Protocole execute:
-     - Lancer `./scripts/charge.sh 30`.
-     - En parallele, changer l image avec `kubectl set image`.
-     - Attendre `kubectl rollout status` et chronometrer la convergence.
+Phase de mesure pure: verifier qu un rolling update est vraiment sans perte sous charge.
+
+1. Ce qui a ete fixe:
+   - Strategie explicite: `maxUnavailable: 0`, `maxSurge: 1`.
+2. Protocole execute:
+   - Charge `./scripts/charge.sh 30` en parallele d un `kubectl set image`.
+   - Convergence mesuree via `kubectl rollout status`.
 3. Tableau demande par le cours (rempli):
 
 | Deploiement | Requetes echouees | Secondes d indisponibilite | Temps de convergence totale |
@@ -745,15 +724,14 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 
 ### Partie 4 - Jour 4 - Phase 9 (Rollback chronometre)
 
-1. Objectif:
-   - Mesurer un retour arriere reel avec `kubectl rollout undo`.
-   - Comparer le delai d aujourd hui avec celui d hier (drill SSH manuel).
-2. Drill execute (cluster):
-   - Preparation du scenario de panne visible: passage temporaire en `replicas: 1`, `maxSurge: 0`, `maxUnavailable: 1`.
-   - Injection regression: image invalide (`this-tag-does-not-exist-phase9`) via `kubectl set image`.
-   - Detection de regression (T0): premier `curl /health` en echec (`HTTP 503`, `no available server`).
-   - Remediation: `kubectl rollout undo deployment/todo-api -n todo` + `kubectl rollout status`.
-   - Retour service (T1): premier `curl /health` revenu `HTTP 200`.
+Derniere etape avant le chaos: chronometrer un vrai retour arriere Kubernetes.
+
+1. Drill execute (cluster):
+   - Scenario volontairement sensible (`replicas: 1`, `maxSurge: 0`, `maxUnavailable: 1`) pour rendre la panne visible.
+   - Injection d une image invalide (`this-tag-does-not-exist-phase9`).
+   - T0 au premier echec observable (`HTTP 503` sur `/health`).
+   - Remediation via `kubectl rollout undo` + attente de convergence.
+   - T1 au premier retour `HTTP 200` sur `/health`.
 3. Mesure reelle:
    - T0: `2026-08-06T13:25:58Z`
    - T1: `2026-08-06T13:26:10Z`
@@ -772,6 +750,27 @@ J ai pris l initiative de contacter mon camarade, mais sans retour a ce stade, d
 7. Restauration finale:
    - Re-application du manifeste source `k8s/todo-api-deployment.yaml`.
    - Etat final confirme: `replicas=3`, `maxSurge=1`, `maxUnavailable=0`, `/health=200`, `/api/tasks=200`.
+
+### Partie 4 - Jour 4 - Phase 10 (5 pannes, diagnostic et remede)
+
+Cette phase a ete faite en mode diagnostic pur: on declenche une panne, on observe ce que racontent `kubectl get pods`, `kubectl describe pod` et les events, puis on corrige seulement si le cluster ne peut pas se reparer seul.
+
+Le but n etait pas la surprise, mais la lecture des symptomes. Chaque panne a ete jouee puis restauree pour garder le cluster utilisable entre deux tests.
+
+Tableau de diagnostic (rempli):
+
+| Panne | Signature dans kubectl get pods | Signature dans kubectl describe / events | Se repare seule ? | Remede |
+| :---- | :---- | :---- | :----: | :---- |
+| Pod supprime | un pod `todo-api-...` disparait puis un nouveau pod apparait, retour a `3/3 Running` | events `SuccessfulDelete` puis `SuccessfulCreate` sur un nouveau pod | Oui | Aucun remede manuel (reconciliation Deployment) |
+| Processus tue dans le conteneur | sur cette image, pas de bascule visible durable (`READY` reste `1/1` pendant le test) | test `kubectl exec ... kill 1`/`pkill node` execute; en theorie, kubelet doit redemarrer le conteneur | Oui (attendu) | Aucun remede manuel; verifier `RESTARTS` et events kubelet si la panne se reproduit |
+| Tag d image inexistant | nouveau pod en `ErrImagePull` / `ImagePullBackOff` | events `Failed to pull image ... not found`, `ErrImagePull`, `ImagePullBackOff` | Non | Remettre une image valide (`kubectl set image ... <tag_valide>`) puis attendre `rollout status` |
+| Cle du Secret supprimee | nouveau pod en `CrashLoopBackOff` apres restart | pod ne demarre plus avec secret incomplet (Secret reference present, demarrage impossible) | Non | Restaurer la cle supprimee dans `todo-secret`, puis relancer le rollout/restart |
+| Limite memoire trop basse | pod en `CrashLoopBackOff` avec anciens pods encore `Running` tant que rollout bloque | `Last State: OOMKilled`, event `Back-off restarting failed container` | Non | Supprimer/augmenter `resources.limits.memory`, reappliquer le deployment, attendre convergence |
+
+Lecture finale:
+1. Le message de la phase est confirme: Kubernetes repare vite ce qui releve de la reconciliation (pod supprime), mais ne corrige pas une mauvaise configuration (image/secret/ressources).
+2. Le cas "processus tue" est bien declenche, mais sur ce run la signature de restart n a pas ete aussi nette que prevu; il faut donc regarder `RESTARTS` avec un `watch` si on veut une preuve plus visible en direct.
+3. En sortie de test, le service a ete remis proprement: `/health=200`, `/api/tasks=200`, `todo-api` revenu a `3 replicas`.
 
 ## 13) Commandes utiles
 
