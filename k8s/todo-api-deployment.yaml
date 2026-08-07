@@ -40,6 +40,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "16Mi"
+            limits:
+              cpu: "250m"
+              memory: "20Mi"
           envFrom:
             - configMapRef:
                 name: todo-config

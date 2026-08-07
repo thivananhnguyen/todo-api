@@ -772,6 +772,57 @@ Lecture finale:
 2. Le cas "processus tue" est bien declenche, mais sur ce run la signature de restart n a pas ete aussi nette que prevu; il faut donc regarder `RESTARTS` avec un `watch` si on veut une preuve plus visible en direct.
 3. En sortie de test, le service a ete remis proprement: `/health=200`, `/api/tasks=200`, `todo-api` revenu a `3 replicas`.
 
+### Partie 4 - Jour 4 - Phase 11 (Procedure, version cluster)
+
+Cette phase a consiste a remplacer la logique "VM + compose" par une procedure exploitable en mode cluster, sans changer de fichier.
+
+1. Livrable mis a jour:
+   - `docs/PROCEDURE_DEPLOIEMENT.md` conserve le meme nom, mais passe en mode Kubernetes (`todo-cluster`, namespace `todo`).
+2. Ce qui a ete integre dans la procedure:
+   - Prerequis d acces (`kubectl`, contexte, namespace) + baseline de verification.
+   - Deploiement nominal via pipeline avec gate `kubectl rollout status`.
+   - Deploiement manuel d urgence (si pipeline HS) avec controles apres chaque etape.
+   - Rollback Kubernetes (`rollout undo`, `--to-revision`) et criteres de declenchement.
+   - Tableau des 5 pannes de la phase 10 avec signatures/remedes.
+   - Limite operationnelle de la phase 7: `/health` ne garantit pas la disponibilite DB.
+3. Critere de sortie:
+   - Procedure lisible sans aide orale, testable commande par commande, et alignee avec l etat reel du cluster.
+
+### Partie 4 - Jour 4 - Phase 12 (Ajustement resources requests/limits)
+
+Objectif de la phase: trouver une enveloppe memoire CPU plus serre que la config par defaut, sans perdre la disponibilite pendant charge + rolling update.
+
+Demarche suivie:
+1. Baseline mesuree avec `kubectl top pods` puis reduction progressive de `limits.memory`.
+2. Validation de la frontiere en charge (`./scripts/charge.sh`) avec observation des pods (`kubectl get pods`, `describe`, events).
+3. Important: correction de la methode quand une combinaison invalide a ete detectee (`requests.memory` ne peut pas etre > `limits.memory`).
+4. Choix final = premier palier stable avant OOM recurrent.
+
+Synthese des essais memoire:
+
+| Regle testee | Observation principale | Decision |
+| :---- | :---- | :---- |
+| limit >= 24Mi (avec charge) | stable sur runs courts | trop conservateur |
+| 22Mi | run mixte, traces de `Last State: OOMKilled` observees | zone limite |
+| 20Mi | charge terminee sans erreur, pas de restart sur validation finale | retenu |
+| 18Mi et dessous | instabilite/OOM selon runs | rejete |
+
+Configuration finale appliquee dans le deployment `todo-api`:
+- `requests.cpu: 50m`
+- `requests.memory: 16Mi`
+- `limits.cpu: 250m`
+- `limits.memory: 20Mi`
+
+Preuve de validation finale (cluster convergent):
+1. `kubectl rollout restart deployment/todo-api -n todo` lance sous charge concurrente `./scripts/charge.sh 30`.
+2. `kubectl rollout status` termine en succes en `25s`.
+3. Charge finale: `239 requetes, 0 echouees`.
+4. Verification fonctionnelle apres convergence: `/health=200` et `/api/tasks=200` via ingress `todo.localhost`.
+5. Verification de la spec active: `requests.cpu=50m requests.memory=16Mi limits.cpu=250m limits.memory=20Mi`.
+
+Conclusion Phase 12:
+Le service garde le comportement attendu pendant un rolling update sous charge avec une enveloppe memoire significativement reduite. Le palier `20Mi` est le compromis retenu: plus agressif provoquait des signaux OOM non acceptables, plus large n apportait pas de benefice pedagogique pour cette phase.
+
 ## 13) Commandes utiles
 
 1. npm run dev
